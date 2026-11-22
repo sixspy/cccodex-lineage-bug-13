@@ -5,6 +5,7 @@ import { renderImpact } from './pages/impact.js';
 import { renderNotify } from './pages/notify.js';
 import { renderCoverage } from './pages/coverage.js';
 import { renderSettings } from './pages/settings.js';
+import { renderTagBind } from './pages/tagbind.js';
 
 const view = document.getElementById('view');
 const msg = document.getElementById('msg');
@@ -14,6 +15,7 @@ const pages = {
   impact: renderImpact,
   notify: renderNotify,
   coverage: renderCoverage,
+  tagbind: renderTagBind,
   settings: renderSettings,
 };
 

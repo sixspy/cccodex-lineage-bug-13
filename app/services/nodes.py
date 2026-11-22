@@ -1,7 +1,8 @@
-"""血缘节点：登记、列表、停用。"""
+"""血缘节点：登记、列表、停用；节点卡片亮真实绑定来源。"""
 from __future__ import annotations
 
 from app.db import get_db
+from app.services import tag_bind as tag_bind_svc
 from app.services.errors import ServiceError
 
 
@@ -30,6 +31,33 @@ def list_nodes(layer: str | None = None, db_path: str | None = None) -> list[dic
             ).fetchone()["c"]
             it["upstream_count"] = int(up)
             it["downstream_count"] = int(down)
+            binding = conn.execute(
+                "SELECT b.*, t.tag_code FROM tag_bindings b "
+                "JOIN tag_catalog t ON t.id=b.tag_id "
+                "WHERE b.node_id=? AND b.state='bound'",
+                (it["id"],),
+            ).fetchone()
+            if binding:
+                it["bound"] = True
+                it["binding_id"] = int(binding["id"])
+                it["tag_code"] = binding["tag_code"]
+                it["binding_track"] = binding["track"]
+                it["binding_source"] = (
+                    tag_bind_svc.SOURCE_VIRTUAL
+                    if binding["track"] == tag_bind_svc.VIRTUAL
+                    else tag_bind_svc.SOURCE_ACTIVE
+                )
+                it["virtual_bound"] = binding["track"] == tag_bind_svc.VIRTUAL
+                it["binding_fingerprint"] = binding["tag_fingerprint"]
+                it["node_status_snapshot"] = binding["node_status_snapshot"]
+                it["binding_drift"] = (
+                    binding["node_status_snapshot"] != it["status"]
+                )
+            else:
+                it["bound"] = False
+                it["binding_source"] = tag_bind_svc.SOURCE_NONE
+                it["virtual_bound"] = False
+                it["binding_drift"] = False
         return items
 
 
@@ -110,21 +138,36 @@ def retire_node(node_id: int, db_path: str | None = None) -> dict:
         conn.execute(
             "UPDATE lineage_nodes SET status='停用' WHERE id=?", (node_id,)
         )
-        return dict(
-            conn.execute(
-                "SELECT * FROM lineage_nodes WHERE id=?", (node_id,)
-            ).fetchone()
-        )
-
+    # 双写两轨：停用后真绑整笔转只读虚绑（独立整笔事务，失败回白话）
+    demoted = tag_bind_svc.demote_to_virtual(
+        node_id, operator="system", note="节点停用，真绑转只读虚绑", db_path=db_path
+    )
+    with get_db(db_path) as conn:
+        node = dict(conn.execute(
+            "SELECT * FROM lineage_nodes WHERE id=?", (node_id,)
+        ).fetchone())
+        node["demoted_to_virtual"] = bool(demoted)
+        return node
 
 
 def open_isolate_window(node_ids: list[int], db_path: str | None = None) -> dict:
-    from app.services.tag_bind import commit_action, panel_chip, pack_rows
+    """隔离窗口：只做只读核对并返回真实绑定/闸门状态，绝不伪造绑定落点。
 
-    commit_action({"nodes": node_ids}, db_path)
+    原实现只刷芯片不写落点（半修），这里改为如实盘点；要落绑定须走
+    tag_bind.commit_binding / commit_virtual_binding。
+    """
+    node_ids = [int(x) for x in (node_ids or [])]
+    blocked: list[dict] = []
+    for nid in node_ids:
+        gate = tag_bind_svc.gate_for_node(nid, db_path)
+        if not gate["allowed"]:
+            blocked.append({"node_id": nid, "reason": gate["reason"],
+                            "source": gate["source"]})
     return {
-        "isolated": len(node_ids or []),
-        "chip": panel_chip(db_path),
-        "pack_count": len(pack_rows(db_path)),
-        "message": "隔离已开",
+        "isolated": len(node_ids),
+        "chip": tag_bind_svc.panel_chip(db_path),
+        "pack_count": tag_bind_svc.board(db_path)["bound_count"],
+        "blocked": blocked,
+        "message": "隔离窗口只读取证，未写任何绑定落点"
+        if not blocked else f"{len(blocked)} 个节点被绑定闸门拦停",
     }

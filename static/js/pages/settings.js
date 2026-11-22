@@ -31,38 +31,14 @@ export async function renderSettings(view, setMsg) {
   });
 
   try {
-    const dash = await api('/api/tag_bind/dash');
+    const snap = await api('/api/tag_bind/snap');
     view.innerHTML += `<section class="card" style="margin-top:1rem">
-      <h3>标签绑定</h3>
-      <span class="tag">${dash.chip}</span>
-      <p class="muted">真相 ${dash.truth} · 包行 ${dash.pack_count} · 对齐差 ${dash.panel_pack_mismatch}</p>
-      <div class="row">
-        <button id="go_tag_bind" class="primary" type="button">落台</button>
-        <button id="half_tag_bind" type="button">半修对齐</button>
-        <button id="note_tag_bind" type="button">记旁路</button>
-      </div>
+      <h3>标签绑定 · 真实快照</h3>
+      <span class="tag ${snap.aligned ? 'active-bind' : 'blocked'}">${snap.truth}</span>
+      <p class="muted">闸门芯片 ${snap.panel_chip} · 在绑落点 ${snap.pack_count} ·
+        真绑 ${snap.active_count} · 虚绑 ${snap.virtual_count} ·
+        旁路放行 gate_bypass=${snap.gate_bypass}</p>
+      <p class="muted">绑定/虚绑/解绑与落点行请在「标签绑定」页操作；只改芯片不落绑定行不算修复。</p>
     </section>`;
-    document.getElementById('go_tag_bind').onclick = async () => {
-      try {
-        const r = await api('/api/tag_bind/commit', { method:'POST', body: JSON.stringify({ref:1}) });
-        setMsg(r.message || '采集标签虚绑');
-        await renderSettings(view, setMsg);
-      } catch (e) { setMsg(e.message, true); }
-    };
-    document.getElementById('half_tag_bind').onclick = async () => {
-      try {
-        const r = await api('/api/tag_bind/half', { method:'POST', body:'{}' });
-        setMsg('半修 ' + r.panel_chip + ' / 包行 ' + r.pack_count);
-        await renderSettings(view, setMsg);
-      } catch (e) { setMsg(e.message, true); }
-    };
-    document.getElementById('note_tag_bind').onclick = async () => {
-      try {
-        await api('/api/tag_bind/note', { method:'POST', body: JSON.stringify({ref_id:1, note:'采集标签虚绑'}) });
-        setMsg('已记旁路');
-        await renderSettings(view, setMsg);
-      } catch (e) { setMsg(e.message, true); }
-    };
   } catch (e) { /* optional surface */ }
-
 }

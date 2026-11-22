@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from bottle import Bottle, HTTPResponse, request, response, static_file
+from bottle import Bottle, HTTPResponse, request, static_file
 from itsdangerous import BadSignature, URLSafeSerializer
 
 from app.config import Config
@@ -256,6 +256,12 @@ def create_app() -> Bottle:
         _require_user()
         return _json({"report": coverage_svc.run_coverage()})
 
+    @app.get("/api/coverage/binding")
+    @wrap
+    def api_coverage_binding():
+        _require_user()
+        return _json(coverage_svc.binding_coverage_progress())
+
     @app.get("/api/settings")
     @wrap
     def api_settings_list():
@@ -276,18 +282,80 @@ def create_app() -> Bottle:
             }
         )
 
-
+    # ----- 标签绑定：凭证 + 双写两轨 + 闸门 -----
     @app.get("/api/tag_bind/dash")
     @wrap
     def api_tag_bind_dash():
         _require_user()
         return _json(tag_bind_ledger_svc.board())
 
+    @app.get("/api/tag_bind/tags")
+    @wrap
+    def api_tag_bind_tags():
+        _require_user()
+        return _json({"items": tag_bind_svc.list_tags()})
+
+    @app.post("/api/tag_bind/tags")
+    @wrap
+    def api_tag_bind_tag_create():
+        _require_user()
+        body = _read_json()
+        item = tag_bind_svc.create_tag(
+            str(body.get("tag_code") or ""),
+            str(body.get("tag_name") or ""),
+        )
+        return _json({"item": item})
+
+    @app.get("/api/tag_bind/bindings")
+    @wrap
+    def api_tag_bind_bindings():
+        _require_user()
+        return _json({"items": tag_bind_svc.list_bindings()})
+
+    @app.post("/api/tag_bind/bind")
+    @wrap
+    def api_tag_bind_active():
+        user = _require_user()
+        body = _read_json()
+        item = tag_bind_svc.commit_binding(
+            int(body.get("tag_id") or 0),
+            int(body.get("node_id") or 0),
+            user,
+            str(body.get("note") or ""),
+        )
+        return _json({"ok": True, "item": item, "message": "真绑已落绑定落点行"})
+
+    @app.post("/api/tag_bind/virtual")
+    @wrap
+    def api_tag_bind_virtual():
+        user = _require_user()
+        body = _read_json()
+        item = tag_bind_svc.commit_virtual_binding(
+            int(body.get("tag_id") or 0),
+            int(body.get("node_id") or 0),
+            user,
+            str(body.get("note") or ""),
+        )
+        return _json({"ok": True, "item": item, "message": "虚绑已入只读历史轨"})
+
+    @app.post("/api/tag_bind/release")
+    @wrap
+    def api_tag_bind_release():
+        user = _require_user()
+        body = _read_json()
+        item = tag_bind_svc.release_binding(
+            int(body.get("node_id") or 0),
+            user,
+            str(body.get("note") or ""),
+        )
+        return _json({"ok": True, "item": item, "message": "已解绑，落点行保留历史"})
+
     @app.post("/api/tag_bind/commit")
     @wrap
     def api_tag_bind_commit():
-        _require_user()
+        user = _require_user()
         body = _read_json()
+        body.setdefault("operator", user)
         return _json(tag_bind_svc.commit_action(body))
 
     @app.post("/api/tag_bind/half")
